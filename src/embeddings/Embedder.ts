@@ -1,0 +1,5 @@
+export interface Embedder {
+  readonly dimensions: number;
+  embed(text: string): Promise<Float32Array>;
+  embedBatch?(texts: string[]): Promise<Float32Array[]>;
+}
