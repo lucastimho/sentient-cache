@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@theme {
+  --color-nebula: oklch(14% 0.04 250);
+  --color-nebula-deep: oklch(8% 0.02 250);
+  --color-nebula-edge: oklch(22% 0.06 235);
+  --color-star-core: oklch(97% 0.08 220);
+  --color-star-glow: oklch(82% 0.14 225);
+  --color-star-dim: oklch(64% 0.1 230);
+  --color-ink: oklch(92% 0.02 230);
+  --color-ink-dim: oklch(70% 0.03 230);
+  --color-ink-faint: oklch(52% 0.04 230);
+  --color-glass-bg: oklch(18% 0.04 245 / 45%);
+  --color-glass-bg-strong: oklch(14% 0.05 245 / 70%);
+  --color-glass-edge: oklch(68% 0.08 225 / 22%);
+  --color-glass-highlight: oklch(92% 0.05 225 / 8%);
+  --color-accent: oklch(78% 0.16 225);
+  --color-accent-dim: oklch(52% 0.12 228);
+  --color-danger: oklch(68% 0.2 25);
+  --color-success: oklch(72% 0.18 150);
+
+  --radius-glass: 1.25rem;
+  --backdrop-blur-glass: 18px;
+
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
+}
+
+@layer base {
+  html,
+  body {
+    min-height: 100dvh;
+    background: var(--color-nebula-deep);
+    color: var(--color-ink);
+    font-family: var(--font-display);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(1200px 800px at 85% 10%, color-mix(in oklch, var(--color-nebula-edge), transparent 30%), transparent 55%),
+      radial-gradient(900px 700px at 10% 85%, color-mix(in oklch, var(--color-accent-dim), transparent 55%), transparent 60%),
+      radial-gradient(ellipse at center, var(--color-nebula) 0%, var(--color-nebula-deep) 70%, black 100%);
+    z-index: -2;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    background: var(--color-glass-bg);
+    backdrop-filter: blur(var(--backdrop-blur-glass)) saturate(1.3);
+    -webkit-backdrop-filter: blur(var(--backdrop-blur-glass)) saturate(1.3);
+    border: 1px solid var(--color-glass-edge);
+    border-radius: var(--radius-glass);
+    box-shadow:
+      inset 0 1px 0 var(--color-glass-highlight),
+      0 24px 60px -24px oklch(0 0 0 / 0.6),
+      0 0 40px -12px oklch(70% 0.15 228 / 15%);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .glass-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      140deg,
+      oklch(92% 0.05 225 / 10%) 0%,
+      transparent 35%,
+      transparent 65%,
+      oklch(40% 0.1 228 / 8%) 100%
+    );
+  }
+
+  .glass-panel--strong {
+    background: var(--color-glass-bg-strong);
+  }
+
+  .glow-text {
+    text-shadow:
+      0 0 12px oklch(80% 0.15 225 / 40%),
+      0 0 3px oklch(95% 0.1 220 / 60%);
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
