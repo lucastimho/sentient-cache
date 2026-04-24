@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import type { SemanticController } from "../controller/SemanticController";
 import type { SessionRegistry } from "../controller/SessionRegistry";
+import type { OpaEvaluator } from "../security/OpaEvaluator";
+import { opaMiddleware } from "../security/opaMiddleware";
+import type { ResourceSentinel } from "../security/ResourceSentinel";
+import { resourceSentinelMiddleware } from "../security/ResourceSentinel";
 import {
   getCachedBody,
   getRefreshAheadHook,
@@ -10,6 +14,9 @@ import {
 export interface CreateIngestorAppOptions {
   controller: SemanticController;
   registry: SessionRegistry;
+  sentinel?: ResourceSentinel;
+  opaEvaluator?: OpaEvaluator;
+  agentHeader?: string;
 }
 
 interface IngestBody {
@@ -35,6 +42,18 @@ export function createIngestorApp(opts: CreateIngestorAppOptions): Hono {
   const app = new Hono();
   const { controller, registry } = opts;
 
+  // Order matters: sentinel rejects at the door (cheapest reject), then OPA
+  // authenticates/authorizes, then refresh-ahead runs now that we know who
+  // the request is for.
+  if (opts.sentinel) {
+    app.use("*", resourceSentinelMiddleware({ sentinel: opts.sentinel }));
+  }
+  if (opts.opaEvaluator) {
+    app.use(
+      "*",
+      opaMiddleware({ evaluator: opts.opaEvaluator, agentHeader: opts.agentHeader }),
+    );
+  }
   app.use("*", refreshAheadMiddleware({ controller, registry }));
 
   app.get("/healthz", (c) => c.json({ ok: true, embeddingDims: controller.embeddingDimensions }));
