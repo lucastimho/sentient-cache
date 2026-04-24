@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { initSchema } from "../db/schema";
 import { cosine, decodeEmbedding, encodeEmbedding } from "./similarity";
 import { rankForEviction } from "./eviction";
+import type { EmbeddingEncryptor } from "../security/EmbeddingEncryptor";
 import type {
   Memory,
   MemoryInput,
@@ -33,6 +34,7 @@ export interface SemanticCacheOptions {
   refreshAheadK?: number;
   remote?: RemoteStore;
   queue?: WriteBehindQueue;
+  encryptor?: EmbeddingEncryptor;
   onSyncError?: (err: unknown) => void;
 }
 
@@ -50,6 +52,7 @@ interface ResolvedOptions {
   searchScanRows: number;
   remote?: RemoteStore;
   queue?: WriteBehindQueue;
+  encryptor?: EmbeddingEncryptor;
   onSyncError: (err: unknown) => void;
 }
 
@@ -63,20 +66,6 @@ interface Row {
   size_bytes: number;
   partition: Partition;
   importance: number;
-}
-
-function rowToMemory(r: Row): Memory {
-  return {
-    id: r.id,
-    content: r.content,
-    embedding: decodeEmbedding(r.embedding),
-    createdAt: r.created_at,
-    lastAccessedAt: r.last_accessed_at,
-    accessCount: r.access_count,
-    sizeBytes: r.size_bytes,
-    partition: r.partition,
-    importance: r.importance,
-  };
 }
 
 function sizeOf(content: string, embedding: Float32Array): number {
@@ -126,6 +115,7 @@ export class SemanticCache {
       searchScanRows: DEFAULTS.searchScanRows,
       remote: opts.remote,
       queue: opts.queue,
+      encryptor: opts.encryptor,
       onSyncError: opts.onSyncError ?? ((err) => console.error("[sentient-cache] sync error", err)),
     };
 
@@ -176,6 +166,28 @@ export class SemanticCache {
     this.startTier2Loop();
   }
 
+  private encodeVec(e: Float32Array): Uint8Array {
+    return this.opts.encryptor ? this.opts.encryptor.encrypt(e) : encodeEmbedding(e);
+  }
+
+  private decodeVec(b: Uint8Array): Float32Array {
+    return this.opts.encryptor ? this.opts.encryptor.decrypt(b) : decodeEmbedding(b);
+  }
+
+  private rowToMemoryDecrypted(r: Row): Memory {
+    return {
+      id: r.id,
+      content: r.content,
+      embedding: this.decodeVec(r.embedding),
+      createdAt: r.created_at,
+      lastAccessedAt: r.last_accessed_at,
+      accessCount: r.access_count,
+      sizeBytes: r.size_bytes,
+      partition: r.partition,
+      importance: r.importance,
+    };
+  }
+
   set(input: MemoryInput): Memory {
     const id = input.id ?? randomUUID();
     const now = Date.now();
@@ -189,7 +201,7 @@ export class SemanticCache {
     this.sInsert.run({
       $id: id,
       $content: input.content,
-      $embedding: encodeEmbedding(input.embedding),
+      $embedding: this.encodeVec(input.embedding),
       $now: now,
       $size: size,
       $partition: partition,
@@ -217,14 +229,14 @@ export class SemanticCache {
     const row = this.sGet.get(id);
     if (!row) return null;
     this.sTouch.run(Date.now(), id);
-    return rowToMemory(row);
+    return this.rowToMemoryDecrypted(row);
   }
 
   search(embedding: Float32Array, k = 10): ScoredMemory[] {
     const rows = this.sAllForScan.all(this.opts.searchScanRows);
     const scored: ScoredMemory[] = [];
     for (const r of rows) {
-      const mem = rowToMemory(r);
+      const mem = this.rowToMemoryDecrypted(r);
       scored.push({ memory: mem, similarity: cosine(mem.embedding, embedding) });
     }
     scored.sort((a, b) => b.similarity - a.similarity);
@@ -252,7 +264,7 @@ export class SemanticCache {
   }
 
   list(limit = 1024): Memory[] {
-    return this.sAllForScan.all(limit).map(rowToMemory);
+    return this.sAllForScan.all(limit).map((r) => this.rowToMemoryDecrypted(r));
   }
 
   delete(id: string): boolean {
@@ -296,7 +308,7 @@ export class SemanticCache {
 
   private tier2Compress(): void {
     if (this.totalBytes <= this.opts.maxBytes * this.opts.tier1TargetRatio) return;
-    const rows = this.sAllForScan.all(this.opts.tier2ScanRows).map(rowToMemory);
+    const rows = this.sAllForScan.all(this.opts.tier2ScanRows).map((r) => this.rowToMemoryDecrypted(r));
     if (rows.length === 0) return;
 
     const ranked = rankForEviction(rows, this.currentGoal, Date.now());
@@ -336,7 +348,7 @@ export class SemanticCache {
     const out: Memory[] = [];
     for (const id of ids) {
       const row = this.sGet.get(id);
-      if (row) out.push(rowToMemory(row));
+      if (row) out.push(this.rowToMemoryDecrypted(row));
     }
     return out;
   }
@@ -358,7 +370,7 @@ export class SemanticCache {
       this.sInsert.run({
         $id: mem.id,
         $content: mem.content,
-        $embedding: encodeEmbedding(mem.embedding),
+        $embedding: this.encodeVec(mem.embedding),
         $now: Date.now(),
         $size: size,
         $partition: mem.partition,
