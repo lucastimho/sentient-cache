@@ -1,9 +1,14 @@
 import { Pool, type PoolConfig } from "pg";
 import type { Memory, Partition, RemoteStore } from "../types";
+import { loadMtls, toPgSsl, type MtlsPaths } from "../security/mtls";
+import type { PathGuard } from "../security/PathGuard";
 
 export interface PostgresRemoteStoreOptions {
   pool: Pool | PoolConfig;
   table?: string;
+  mtls?: MtlsPaths;
+  mtlsServername?: string;
+  pathGuard?: PathGuard;
 }
 
 interface RemoteRow {
@@ -48,7 +53,20 @@ export class PostgresRemoteStore implements RemoteStore {
   private readonly table: string;
 
   constructor(opts: PostgresRemoteStoreOptions) {
-    this.pool = opts.pool instanceof Pool ? opts.pool : new Pool(opts.pool);
+    if (opts.pool instanceof Pool) {
+      this.pool = opts.pool;
+    } else {
+      const poolConfig: PoolConfig = { ...opts.pool };
+      if (opts.mtls) {
+        const material = loadMtls({
+          paths: opts.mtls,
+          servername: opts.mtlsServername,
+          pathGuard: opts.pathGuard,
+        });
+        poolConfig.ssl = toPgSsl(material);
+      }
+      this.pool = new Pool(poolConfig);
+    }
     this.table = opts.table ?? "memories";
   }
 
