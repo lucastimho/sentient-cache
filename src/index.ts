@@ -21,6 +21,31 @@ export {
   getCachedBody,
   type RefreshAheadHook,
 } from "./ingestor/refreshAhead";
+export {
+  XorEmbeddingEncryptor,
+  NoOpEncryptor,
+  type EmbeddingEncryptor,
+  type XorEmbeddingEncryptorOptions,
+} from "./security/EmbeddingEncryptor";
+export {
+  CapabilityTableEvaluator,
+  HttpOpaEvaluator,
+  type CapabilityTable,
+  type MemoryOperation,
+  type OpaEvaluator,
+  type PolicyDecision,
+  type PolicyInput,
+} from "./security/OpaEvaluator";
+export { opaMiddleware, getAgentId } from "./security/opaMiddleware";
+export {
+  ResourceSentinel,
+  resourceSentinelMiddleware,
+  type SentinelSnapshot,
+  type ResourceSentinelOptions,
+  type AdmissionTicket,
+} from "./security/ResourceSentinel";
+export { PathGuard, PathGuardViolation, pathGuardFromEnv } from "./security/PathGuard";
+export { loadMtls, toPgSsl, type MtlsPaths, type MtlsMaterial } from "./security/mtls";
 export type {
   Memory,
   MemoryInput,
