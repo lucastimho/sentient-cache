@@ -20,6 +20,9 @@ function formatNs(ns: number): string {
 
 function Sparkline({ samples }: { samples: LatencySample[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [hover, setHover] = useState<{ x: number; value: number; source: LatencySample["source"] } | null>(
+    null,
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -86,7 +89,35 @@ function Sparkline({ samples }: { samples: LatencySample[] }) {
     return () => cancelAnimationFrame(rafId);
   }, [samples]);
 
-  return <canvas ref={canvasRef} className="h-20 w-full" />;
+  return (
+    <div className="relative">
+      <canvas
+        ref={canvasRef}
+        className="h-20 w-full cursor-crosshair"
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const recent = samples.slice(-MAX_SAMPLES);
+          if (recent.length === 0) return;
+          const idx = Math.min(
+            recent.length - 1,
+            Math.max(0, Math.floor((x / rect.width) * recent.length)),
+          );
+          const sample = recent[idx]!;
+          setHover({ x, value: sample.edgeMs, source: sample.source });
+        }}
+        onMouseLeave={() => setHover(null)}
+      />
+      {hover && (
+        <div
+          className="pointer-events-none absolute -top-1 mono text-[10px] tracking-widest text-[color:var(--color-accent)] glow-text whitespace-nowrap"
+          style={{ left: hover.x, transform: "translate(-50%, -100%)" }}
+        >
+          {hover.value.toFixed(2)} ms · {hover.source}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function LatencyVitalsPanel({ samples, currentMs }: LatencyVitalsPanelProps) {
