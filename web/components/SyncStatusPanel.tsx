@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { forwardRef, useState } from "react";
 import { GlassPanel } from "./GlassPanel";
 import { ingest, isBackendConfigured } from "@/lib/api";
 import type { HudMemory, SyncJob } from "@/lib/types";
@@ -15,11 +15,11 @@ interface SyncStatusPanelProps {
 
 const QK_QUEUE = ["sync-queue"] as const;
 
-export function SyncStatusPanel({
-  pendingJobs,
-  onLocalIngest,
-  onJobComplete,
-}: SyncStatusPanelProps) {
+export const SyncStatusPanel = forwardRef<HTMLInputElement, SyncStatusPanelProps>(
+  function SyncStatusPanel(
+    { pendingJobs, onLocalIngest, onJobComplete }: SyncStatusPanelProps,
+    forwardedRef,
+  ) {
   const [draft, setDraft] = useState("");
   const queryClient = useQueryClient();
 
@@ -100,13 +100,19 @@ export function SyncStatusPanel({
         }}
         className="flex items-center gap-2"
       >
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ingest a new thought…"
-          className="mono flex-1 rounded-md border border-[color:var(--color-glass-edge)]/70 bg-[color:var(--color-nebula-deep)]/60 px-3 py-2 text-sm text-[color:var(--color-ink)] placeholder:text-[color:var(--color-ink-faint)] outline-none focus:border-[color:var(--color-accent)]/60 focus:ring-1 focus:ring-[color:var(--color-accent)]/40"
-        />
+        <div className="relative flex-1">
+          <input
+            ref={forwardedRef}
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Ingest a new thought…"
+            className="mono w-full rounded-md border border-[color:var(--color-glass-edge)]/70 bg-[color:var(--color-nebula-deep)]/60 px-3 py-2 pr-9 text-sm text-[color:var(--color-ink)] placeholder:text-[color:var(--color-ink-faint)] outline-none focus:border-[color:var(--color-accent)]/60 focus:ring-1 focus:ring-[color:var(--color-accent)]/40"
+          />
+          <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-[color:var(--color-glass-edge)]/80 bg-[color:var(--color-glass-bg-strong)] px-1.5 py-0.5 mono text-[10px] uppercase tracking-widest text-[color:var(--color-ink-faint)]">
+            i
+          </kbd>
+        </div>
         <button
           type="submit"
           disabled={mutation.isPending || !draft.trim()}
@@ -138,4 +144,4 @@ export function SyncStatusPanel({
       </ul>
     </GlassPanel>
   );
-}
+});

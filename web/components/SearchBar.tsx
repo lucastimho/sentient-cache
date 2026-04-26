@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { forwardRef, useEffect, useRef, useState, useTransition } from "react";
 import { GlassPanel } from "./GlassPanel";
 import { cosine, getClientEmbedder } from "@/lib/embedder";
 import type { HudMemory } from "@/lib/types";
@@ -13,7 +13,10 @@ interface SearchBarProps {
 const TOP_K = 12;
 const DEBOUNCE_MS = 150;
 
-export function SearchBar({ memories, onResults }: SearchBarProps) {
+export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBar(
+  { memories, onResults },
+  forwardedRef,
+) {
   const [query, setQuery] = useState("");
   const [matchCount, setMatchCount] = useState(0);
   const [lastLatencyMs, setLastLatencyMs] = useState<number | null>(null);
@@ -77,14 +80,15 @@ export function SearchBar({ memories, onResults }: SearchBarProps) {
         <span className="sr-only">Search memories</span>
         <div className="relative">
           <input
+            ref={forwardedRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="…reflecting on a topic, a task, a regret"
-            className="mono w-full rounded-md border border-[color:var(--color-glass-edge)]/80 bg-[color:var(--color-nebula-deep)]/70 px-3 py-2.5 pr-14 text-sm text-[color:var(--color-ink)] placeholder:text-[color:var(--color-ink-faint)] outline-none transition focus:border-[color:var(--color-accent)] focus:ring-1 focus:ring-[color:var(--color-accent)]/50"
+            className="mono w-full rounded-md border border-[color:var(--color-glass-edge)]/80 bg-[color:var(--color-nebula-deep)]/70 px-3 py-2.5 pr-16 text-sm text-[color:var(--color-ink)] placeholder:text-[color:var(--color-ink-faint)] outline-none transition focus:border-[color:var(--color-accent)] focus:ring-1 focus:ring-[color:var(--color-accent)]/50"
           />
-          <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-[color:var(--color-glass-edge)]/80 bg-[color:var(--color-glass-bg-strong)] px-1.5 py-0.5 mono text-[10px] text-[color:var(--color-ink-faint)]">
-            WASM
+          <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-[color:var(--color-glass-edge)]/80 bg-[color:var(--color-glass-bg-strong)] px-1.5 py-0.5 mono text-[10px] uppercase tracking-widest text-[color:var(--color-ink-faint)]">
+            /
           </kbd>
         </div>
       </label>
@@ -92,7 +96,7 @@ export function SearchBar({ memories, onResults }: SearchBarProps) {
       <div className="mt-3 flex items-center justify-between mono text-[11px] text-[color:var(--color-ink-faint)]">
         <span>
           {query.trim() === "" ? (
-            "384-dim client-side embedder ready"
+            "on-device embedder · raw text never leaves"
           ) : matchCount > 0 ? (
             <>
               highlighted{" "}
@@ -111,10 +115,10 @@ export function SearchBar({ memories, onResults }: SearchBarProps) {
             onClick={() => setQuery("")}
             className="uppercase tracking-widest hover:text-[color:var(--color-ink-dim)]"
           >
-            clear
+            clear · esc
           </button>
         )}
       </div>
     </GlassPanel>
   );
-}
+});
