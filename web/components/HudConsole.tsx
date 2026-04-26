@@ -1,14 +1,18 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlassPanel } from "./GlassPanel";
 import { LatencyVitalsPanel } from "./LatencyVitalsPanel";
+import { MemoryInspector } from "./MemoryInspector";
+import { MemoryTooltip } from "./MemoryTooltip";
 import { SearchBar } from "./SearchBar";
 import { StarField } from "./StarField";
 import { SyncStatusPanel } from "./SyncStatusPanel";
 import { generateMockMemories } from "@/lib/memories";
 import type { HudMemory, LatencySample, SyncJob } from "@/lib/types";
+import { useKeyboardShortcuts } from "@/lib/useKeyboardShortcuts";
+import { utility } from "@/lib/utility";
 
 const MemoryGalaxy = dynamic(
   () => import("./MemoryGalaxy").then((m) => m.MemoryGalaxy),
@@ -31,6 +35,12 @@ export function HudConsole() {
   const [samples, setSamples] = useState<LatencySample[]>([]);
   const [jobs, setJobs] = useState<SyncJob[]>([]);
   const [currentMs, setCurrentMs] = useState<number | null>(null);
+  const [selectedMemory, setSelectedMemory] = useState<HudMemory | null>(null);
+  const [hoveredMemory, setHoveredMemory] = useState<HudMemory | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const ingestInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,25 +54,23 @@ export function HudConsole() {
   }, []);
 
   useEffect(() => {
-    // Synthetic edge-retrieval telemetry: every SAMPLE_WINDOW_MS we roll a new
-    // latency value clustered around 2–9ms with occasional 11–18ms spikes for
-    // cold-cache reads. Replace with a real /metrics subscription once the
-    // ingestor exposes one.
+    // Synthetic edge-retrieval telemetry: 2–9ms baseline with occasional
+    // 11–18ms refresh-ahead spikes. Replace with a real /metrics stream once
+    // the ingestor exposes one.
     const tick = () => {
       const base = 2 + Math.random() * 6;
       const spike = Math.random() < 0.12 ? 6 + Math.random() * 9 : 0;
       const edgeMs = base + spike;
-      setSamples((prev) => {
-        const next = [
+      setSamples((prev) =>
+        [
           ...prev,
           {
             at: Date.now(),
             edgeMs,
             source: spike > 0 ? "refresh-ahead" : "local-cache",
           } as LatencySample,
-        ];
-        return next.length > 180 ? next.slice(-180) : next;
-      });
+        ].slice(-180),
+      );
       setCurrentMs(edgeMs);
     };
     tick();
@@ -90,37 +98,70 @@ export function HudConsole() {
     [],
   );
 
-  const handleLocalIngest = useCallback(
-    (memory: HudMemory) => {
-      setMemories((prev) => [memory, ...prev].slice(0, 800));
-      setJobs((prev) => [
-        ...prev,
-        {
-          id: memory.id,
-          memoryId: memory.id,
-          enqueuedAt: Date.now(),
-          attempts: 0,
-          state: "pending",
-        },
-      ]);
+  const handleLocalIngest = useCallback((memory: HudMemory) => {
+    setMemories((prev) => [memory, ...prev].slice(0, 800));
+    setJobs((prev) => [
+      ...prev,
+      {
+        id: memory.id,
+        memoryId: memory.id,
+        enqueuedAt: Date.now(),
+        attempts: 0,
+        state: "pending",
+      },
+    ]);
+  }, []);
+
+  const handleJobComplete = useCallback((jobId: string) => {
+    setJobs((prev) =>
+      prev.map((j) => (j.id === jobId ? { ...j, state: "done" as const } : j)),
+    );
+    setMemories((prev) =>
+      prev.map((m) => (m.id === jobId ? { ...m, syncState: "synced" as const } : m)),
+    );
+    setTimeout(() => {
+      setJobs((prev) => prev.filter((j) => j.id !== jobId));
+    }, 1_200);
+  }, []);
+
+  const handleGalaxyHover = useCallback(
+    (mem: HudMemory | null, pos: { x: number; y: number } | null) => {
+      setHoveredMemory(mem);
+      setHoverPos(pos);
     },
     [],
   );
 
-  const handleJobComplete = useCallback(
-    (jobId: string) => {
-      setJobs((prev) =>
-        prev.map((j) => (j.id === jobId ? { ...j, state: "done" as const } : j)),
-      );
-      setMemories((prev) =>
-        prev.map((m) => (m.id === jobId ? { ...m, syncState: "synced" as const } : m)),
-      );
-      setTimeout(() => {
-        setJobs((prev) => prev.filter((j) => j.id !== jobId));
-      }, 1_200);
+  const handleGalaxySelect = useCallback((mem: HudMemory | null) => {
+    setSelectedMemory(mem);
+  }, []);
+
+  useKeyboardShortcuts({
+    onFocusSearch: () => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
     },
-    [],
-  );
+    onFocusIngest: () => {
+      ingestInputRef.current?.focus();
+    },
+    onClearHighlights: () => {
+      setHighlighted(new Set());
+      setGoal(null);
+    },
+    onEscape: () => {
+      if (selectedMemory) {
+        setSelectedMemory(null);
+        return;
+      }
+      if (highlighted.size > 0) {
+        setHighlighted(new Set());
+        setGoal(null);
+        return;
+      }
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+    },
+  });
 
   const counts = useMemo(() => {
     return {
@@ -133,6 +174,21 @@ export function HudConsole() {
           : memories.reduce((s, m) => s + m.importance, 0) / memories.length,
     };
   }, [memories]);
+
+  const selectedUtility = useMemo(
+    () => (selectedMemory ? utility(selectedMemory, goal) : 0),
+    [selectedMemory, goal],
+  );
+
+  const tooltipUtility = useMemo(
+    () => (hoveredMemory ? utility(hoveredMemory, goal) : 0),
+    [hoveredMemory, goal],
+  );
+
+  const showTooltip =
+    hoveredMemory &&
+    hoverPos &&
+    (!selectedMemory || hoveredMemory.id !== selectedMemory.id);
 
   return (
     <>
@@ -167,50 +223,80 @@ export function HudConsole() {
             memories={memories}
             highlighted={highlighted}
             goal={goal}
+            selectedId={selectedMemory?.id ?? null}
+            onHover={handleGalaxyHover}
+            onSelect={handleGalaxySelect}
             className="h-full w-full"
           />
         </section>
 
         <aside className="absolute right-6 top-28 bottom-6 z-10 flex w-[22rem] flex-col gap-4">
-          <SearchBar memories={memories} onResults={handleSearchResults} />
+          <SearchBar
+            ref={searchInputRef}
+            memories={memories}
+            onResults={handleSearchResults}
+          />
           <LatencyVitalsPanel samples={samples} currentMs={currentMs} />
           <SyncStatusPanel
+            ref={ingestInputRef}
             pendingJobs={jobs}
             onLocalIngest={handleLocalIngest}
             onJobComplete={handleJobComplete}
           />
         </aside>
 
-        <aside className="absolute bottom-6 left-6 z-10 w-[19rem]">
-          <GlassPanel
-            title="Memory Heatmap"
-            subtitle="Brightness ∝ Semantic Utility"
-            accent={
-              <span className="mono text-[10px] uppercase tracking-widest text-[color:var(--color-ink-faint)]">
-                U = (S × C) / T
-              </span>
-            }
-          >
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 mono text-[11px]">
-              <dt className="text-[color:var(--color-ink-faint)]">projection</dt>
-              <dd className="text-right text-[color:var(--color-ink-dim)]">
-                384-d → 3-d fold
-              </dd>
-              <dt className="text-[color:var(--color-ink-faint)]">star size</dt>
-              <dd className="text-right text-[color:var(--color-ink-dim)]">
-                utility × importance
-              </dd>
-              <dt className="text-[color:var(--color-ink-faint)]">hot color</dt>
-              <dd className="text-right text-[color:var(--color-accent)] glow-text">
-                sky · starlight
-              </dd>
-              <dt className="text-[color:var(--color-ink-faint)]">search</dt>
-              <dd className="text-right text-[color:var(--color-ink-dim)]">
-                on-device WASM
-              </dd>
-            </dl>
-          </GlassPanel>
+        <aside className="absolute bottom-6 left-6 z-10 w-[22rem]">
+          {selectedMemory ? (
+            <MemoryInspector
+              memory={selectedMemory}
+              utility={selectedUtility}
+              onClose={() => setSelectedMemory(null)}
+            />
+          ) : (
+            <GlassPanel
+              title="Memory Heatmap"
+              subtitle="Brightness ∝ Semantic Utility"
+              accent={
+                <span className="mono text-[10px] uppercase tracking-widest text-[color:var(--color-ink-faint)]">
+                  U = (S × C) / T
+                </span>
+              }
+            >
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 mono text-[11px]">
+                <dt className="text-[color:var(--color-ink-faint)]">projection</dt>
+                <dd className="text-right text-[color:var(--color-ink-dim)]">
+                  384-d → 3-d fold
+                </dd>
+                <dt className="text-[color:var(--color-ink-faint)]">star size</dt>
+                <dd className="text-right text-[color:var(--color-ink-dim)]">
+                  utility × importance
+                </dd>
+                <dt className="text-[color:var(--color-ink-faint)]">hot color</dt>
+                <dd className="text-right text-[color:var(--color-accent)] glow-text">
+                  sky · starlight
+                </dd>
+                <dt className="text-[color:var(--color-ink-faint)]">search</dt>
+                <dd className="text-right text-[color:var(--color-ink-dim)]">
+                  on-device WASM
+                </dd>
+              </dl>
+              <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 border-t border-[color:var(--color-glass-edge)]/60 pt-3 mono text-[10px] uppercase tracking-widest text-[color:var(--color-ink-faint)]">
+                <ShortcutHint k="/" label="search" />
+                <ShortcutHint k="i" label="ingest" />
+                <ShortcutHint k="r" label="clear" />
+                <ShortcutHint k="esc" label="deselect" />
+              </div>
+            </GlassPanel>
+          )}
         </aside>
+
+        {showTooltip && hoveredMemory && hoverPos && (
+          <MemoryTooltip
+            memory={hoveredMemory}
+            utility={tooltipUtility}
+            position={hoverPos}
+          />
+        )}
       </main>
     </>
   );
@@ -245,4 +331,15 @@ function Stat({
 
 function Sep() {
   return <span className="self-center text-[color:var(--color-glass-edge)]">·</span>;
+}
+
+function ShortcutHint({ k, label }: { k: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <kbd className="rounded border border-[color:var(--color-glass-edge)]/80 bg-[color:var(--color-nebula-deep)]/60 px-1.5 py-0.5 text-[color:var(--color-ink-dim)]">
+        {k}
+      </kbd>
+      <span>{label}</span>
+    </span>
+  );
 }
