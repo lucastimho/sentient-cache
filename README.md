@@ -5,8 +5,9 @@
 Sentient-Cache is a local-first memory layer that gives AI agents a persistent "long-term memory" which stays available offline, synchronizes eventually to a central vector store, and visualizes its internal state in real time. It was built end-to-end to demonstrate infrastructure-grade engineering: a Bun/TypeScript backend with a two-tier semantic eviction policy, a write-behind sync pipeline over BullMQ + pgvector, a Searchable-Encryption-ready security layer, and a Next.js 15 + Three.js console that renders up to several thousand 384-dimensional embeddings at 60fps.
 
 ```
-~3,400 lines of TypeScript    24 backend modules + 16 frontend files
+~3,800 lines of TypeScript    24 backend modules + 19 frontend files
 143 tests across 18 specs     tsc --noEmit passes on backend & web/
+next build → 121 KB first-load JS, 13.1 KB main route
 Single-author, clean history  Bisectable commit chain
 ```
 
@@ -18,19 +19,20 @@ Single-author, clean history  Bisectable commit chain
 2. [What makes it non-trivial](#what-makes-it-non-trivial)
 3. [System architecture](#system-architecture)
 4. [Feature matrix](#feature-matrix)
-5. [Tech stack](#tech-stack)
-6. [Prerequisites](#prerequisites)
-7. [Installation](#installation)
-8. [Running it](#running-it)
-9. [HTTP API reference](#http-api-reference)
-10. [Using the library](#using-the-library)
-11. [Repository layout](#repository-layout)
-12. [Testing](#testing)
-13. [Performance & design characteristics](#performance--design-characteristics)
-14. [Security model](#security-model)
-15. [Design decisions & trade-offs](#design-decisions--trade-offs)
-16. [Known limitations](#known-limitations)
-17. [Impact summary](#impact-summary)
+5. [Interactive HUD](#interactive-hud)
+6. [Tech stack](#tech-stack)
+7. [Prerequisites](#prerequisites)
+8. [Installation](#installation)
+9. [Running it](#running-it)
+10. [HTTP API reference](#http-api-reference)
+11. [Using the library](#using-the-library)
+12. [Repository layout](#repository-layout)
+13. [Testing](#testing)
+14. [Performance & design characteristics](#performance--design-characteristics)
+15. [Security model](#security-model)
+16. [Design decisions & trade-offs](#design-decisions--trade-offs)
+17. [Known limitations](#known-limitations)
+18. [Impact summary](#impact-summary)
 
 ---
 
@@ -56,6 +58,7 @@ Concretely the project demonstrates:
 | Evicting "useless" memories without vector math on every write | **Two-tier eviction**: tier-1 is a cheap inline TTL+LRU prune (single `DELETE … RETURNING`) that runs when the byte budget is crossed; tier-2 is a periodic semantic pass that scores candidates by `U = Recency × Importance / (1 + Density)` and evicts the bottom 10%. |
 | Searching encrypted data | The `EmbeddingEncryptor` interface is shaped for a real SSE primitive (ORE, secure inner product). The current `XorEmbeddingEncryptor` ships encryption-at-rest with a deterministic SHA-256-CTR keystream; the README below is honest about when to swap in ciphertext-native similarity. |
 | Visualizing thousands of 384-d embeddings at 60fps | Three.js `Points` with a custom additive-blend shader; positions projected from 384-d to 3-d via a zero-JS-matrix fold; attribute buffers updated in place so re-renders don't rebuild the scene. |
+| Making the centerpiece *interactive* without hurting 60fps | A `THREE.Raycaster` (`Points.threshold = 0.5`) picks the nearest star under the cursor. Pointer-capture-based drag-to-rotate with a 5px click-vs-drag threshold. Auto-rotation pauses on interaction, resumes after 4s of idle. Pitch clamped to ±1.2 rad so the cloud can't be inverted. Latest props mirrored into refs so the long-lived input handlers and RAF loop see fresh values without re-mounting the WebGL context. |
 | Client-side semantic search without leaking query text | A feature-hashed 384-dim `HashEmbedder` runs entirely in the browser. The raw query never leaves the device. Interface is swap-compatible with a real `@xenova/transformers` ONNX embedder. |
 | Memory-bomb defense | A `ResourceSentinel` admits requests against a 100MB queue budget, rejects with 503 + exponential `Retry-After`, and releases on response completion. |
 | Least privilege | A `PathGuard` refuses any filesystem path that escapes the designated `/data` volume — blocks absolute escapes, traversal, prefix-matching siblings, and empty inputs before `readFileSync` is called. |
@@ -122,7 +125,34 @@ Flow at a glance:
 | **Refresh-ahead** | `setGoal(embedding)` kicks off a top-5 pgvector fetch and inserts results locally without awaiting. Wired into a Hono middleware that triggers whenever `(session_id, current_task)` changes. |
 | **Embeddings** | `Embedder` interface; 384-dim `HashEmbedder` (FNV-1a feature hashing + bigrams + L2 normalize, deterministic, zero deps); `TransformersEmbedder` wrapping `@xenova/transformers` with lazy import. Swap via constructor argument. |
 | **Security** | `PathGuard` confines FS access; `loadMtls` pins TLS 1.3; `EmbeddingEncryptor` layer; `OpaEvaluator` (HTTP + in-process capability table) + middleware; `ResourceSentinel` token-bucket + 503 back-pressure. |
-| **HUD** | Next.js 15 RSC shell; Three.js `Points` with additive-blend shader; Canvas-based sparkline; TanStack Query optimistic ingest mutation; Tailwind v4 `@theme` tokens for the glass aesthetic; StarField background. |
+| **HUD** | Next.js 15 RSC shell; Three.js `Points` with additive-blend shader; Canvas-based sparkline with hover read-out; TanStack Query optimistic ingest mutation; Tailwind v4 `@theme` tokens for the glass aesthetic; StarField background. |
+| **HUD interactivity** | Raycasted hover (cursor-following tooltip) + click-to-pin (`MemoryInspector` side panel with full memory metadata). Drag-to-rotate galaxy. 4-key keyboard shortcut layer (`/`, `⌘/Ctrl+K`, `i`, `r`, `Esc` with cascading deselect). Sparkline reveals exact ms + source on hover. |
+
+## Interactive HUD
+
+The console behaves like a real operator tool, not a static demo.
+
+**Galaxy gestures**
+
+- **Hover a star** → fixed-position tooltip showing the memory's id, content (truncated), utility, importance, and partition. Auto-flips to the cursor's left when within 288px of the right viewport edge.
+- **Click a star** → bottom-left legend swaps to a `MemoryInspector` panel showing the memory's full content, live utility against the current goal vector, access count, age, partition, sync state, and size. The selected star tints warm-gold and gains a sharp inner ring in the GLSL fragment shader.
+- **Drag anywhere** → orbit the cloud. Click vs. drag is disambiguated with a 5px movement threshold using `setPointerCapture`. Pitch clamped to ±1.2 rad. Auto-rotation pauses while interacting and resumes after 4s of idle.
+
+**Keyboard layer**
+
+| Binding | Action |
+|---|---|
+| `/` | Focus + select-all on the search input |
+| `⌘K` / `Ctrl+K` | Same as `/` (works even while another input is focused) |
+| `i` | Focus the ingest input |
+| `r` | Clear search highlights and the goal vector |
+| `Esc` | Cascading: deselect inspected memory → clear highlights → blur active element |
+
+The 4-key shortcut hint strip is rendered at the bottom of the legend so the bindings are discoverable without a tour. Single-key bindings (`/`, `i`, `r`) are suppressed while a text input is focused so the user can still type those characters.
+
+**Latency sparkline**
+
+- Hover → exact ms readout for the bin under the cursor, plus the source label (`local-cache` / `refresh-ahead`). Cursor switches to a crosshair while hovering.
 
 ## Tech stack
 
@@ -437,14 +467,17 @@ sentient-cache/
 ├── web/                          # Next.js 15 + Tailwind v4 HUD
 │   ├── app/                      # RSC layout, page, providers, globals.css
 │   ├── components/
-│   │   ├── MemoryGalaxy.tsx      # Three.js point cloud + shader
-│   │   ├── LatencyVitalsPanel.tsx# log-scale bars + Canvas sparkline
+│   │   ├── MemoryGalaxy.tsx      # Three.js point cloud + shader + raycasting
+│   │   ├── MemoryInspector.tsx   # selected-memory side panel (full metadata)
+│   │   ├── MemoryTooltip.tsx     # cursor-following hover label
+│   │   ├── LatencyVitalsPanel.tsx# log-scale bars + Canvas sparkline w/ hover
 │   │   ├── SyncStatusPanel.tsx   # TanStack Query optimistic ingest
 │   │   ├── SearchBar.tsx         # on-device embedder + highlight
-│   │   ├── HudConsole.tsx        # client orchestrator
+│   │   ├── HudConsole.tsx        # client orchestrator + shortcut layer
 │   │   ├── GlassPanel.tsx        # frosted-glass shell
 │   │   └── StarField.tsx         # Canvas background
-│   └── lib/                      # types, embedder, API client, mock seeder
+│   └── lib/                      # types, embedder, utility, API client,
+│                                 #   mock seeder, useKeyboardShortcuts
 │
 ├── package.json                  # backend deps + scripts
 ├── tsconfig.json                 # strict, verbatimModuleSyntax, tests included
@@ -513,9 +546,9 @@ For resume / one-line pitches:
 
 > **Shipped a zero-knowledge-ready security layer** with pluggable embedding encryption, Open Policy Agent capability authorization, token-bucket 503 back-pressure, filesystem confinement, and mTLS 1.3 pinning — verified end-to-end in the Hono app.
 
-> **Built a high-concurrency 3D operator HUD** in Next.js 15 + Tailwind v4, rendering several thousand 384-dim embeddings at 60fps via a custom Three.js additive-blend shader, a Canvas sparkline, TanStack Query optimistic mutations, and a fully client-side WASM-ready semantic search bar.
+> **Built a high-concurrency 3D operator HUD** in Next.js 15 + Tailwind v4, rendering several thousand 384-dim embeddings at 60fps via a custom Three.js additive-blend shader. Added raycasted hover/click picking, drag-to-rotate orbit gesture, a four-key keyboard shortcut layer (`/`, `⌘K`, `i`, `r`, `Esc` with cascading deselect), and a sparkline with hover read-out — converting a static visualization into an operator-grade tool.
 
-> **143 tests across 18 spec files**, bisectable commit chain, `tsc --noEmit` clean on both the backend and `web/`, `next build` producing a ~120KB first-load page.
+> **143 tests across 18 spec files**, bisectable commit chain, `tsc --noEmit` clean on both the backend and `web/`, `next build` producing a 121 KB first-load JS page (13.1 KB main route).
 
 ---
 
