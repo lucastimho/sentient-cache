@@ -21,12 +21,12 @@ export function StarField() {
     let stars: Star[] = [];
 
     function seed() {
-      const n = Math.floor((w * h) / 7_000);
+      const n = Math.floor((w * h) / 18_000);
       stars = Array.from({ length: n }, () => ({
         x: Math.random() * w,
         y: Math.random() * h,
-        r: Math.random() * 1.2 + 0.2,
-        a: Math.random() * 0.7 + 0.1,
+        r: Math.random() * 0.9 + 0.15,
+        a: Math.random() * 0.35 + 0.05,
         twinkle: Math.random() * Math.PI * 2,
       }));
     }
@@ -50,9 +50,9 @@ export function StarField() {
       const t = (now - start) / 1000;
       ctx!.clearRect(0, 0, w, h);
       for (const s of stars) {
-        const flicker = 0.6 + 0.4 * Math.sin(t * 2 + s.twinkle);
+        const flicker = 0.7 + 0.3 * Math.sin(t * 1.4 + s.twinkle);
         ctx!.globalAlpha = s.a * flicker;
-        ctx!.fillStyle = "oklch(92% 0.05 225)";
+        ctx!.fillStyle = "oklch(88% 0.012 80)";
         ctx!.beginPath();
         ctx!.arc(s.x, s.y, s.r, 0, Math.PI * 2);
         ctx!.fill();

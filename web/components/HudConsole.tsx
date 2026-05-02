@@ -2,10 +2,10 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GlassPanel } from "./GlassPanel";
 import { LatencyVitalsPanel } from "./LatencyVitalsPanel";
 import { MemoryInspector } from "./MemoryInspector";
 import { MemoryTooltip } from "./MemoryTooltip";
+import { Panel } from "./Panel";
 import { SearchBar } from "./SearchBar";
 import { StarField } from "./StarField";
 import { SyncStatusPanel } from "./SyncStatusPanel";
@@ -19,8 +19,8 @@ const MemoryGalaxy = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full items-center justify-center mono text-[11px] uppercase tracking-widest text-[color:var(--color-ink-faint)]">
-        initializing webgl context…
+      <div className="flex h-full items-center justify-center text-[10px] uppercase tracking-[0.18em] text-[color:var(--color-ink-faint)]">
+        initializing webgl context
       </div>
     ),
   },
@@ -38,6 +38,7 @@ export function HudConsole() {
   const [selectedMemory, setSelectedMemory] = useState<HudMemory | null>(null);
   const [hoveredMemory, setHoveredMemory] = useState<HudMemory | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const ingestInputRef = useRef<HTMLInputElement>(null);
@@ -54,9 +55,6 @@ export function HudConsole() {
   }, []);
 
   useEffect(() => {
-    // Synthetic edge-retrieval telemetry: 2–9ms baseline with occasional
-    // 11–18ms refresh-ahead spikes. Replace with a real /metrics stream once
-    // the ingestor exposes one.
     const tick = () => {
       const base = 2 + Math.random() * 6;
       const spike = Math.random() < 0.12 ? 6 + Math.random() * 9 : 0;
@@ -124,6 +122,14 @@ export function HudConsole() {
     }, 1_200);
   }, []);
 
+  const handleJobError = useCallback((jobId: string) => {
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.id === jobId ? { ...j, state: "error" as const, attempts: j.attempts + 1 } : j,
+      ),
+    );
+  }, []);
+
   const handleGalaxyHover = useCallback(
     (mem: HudMemory | null, pos: { x: number; y: number } | null) => {
       setHoveredMemory(mem);
@@ -149,6 +155,10 @@ export function HudConsole() {
       setGoal(null);
     },
     onEscape: () => {
+      if (helpOpen) {
+        setHelpOpen(false);
+        return;
+      }
       if (selectedMemory) {
         setSelectedMemory(null);
         return;
@@ -194,30 +204,39 @@ export function HudConsole() {
     <>
       <StarField />
       <main className="relative min-h-dvh w-full overflow-hidden">
-        <header className="pointer-events-none absolute left-6 right-6 top-6 z-20 flex items-start justify-between">
-          <div>
-            <div className="mono text-[10px] tracking-[0.3em] uppercase text-[color:var(--color-ink-faint)]">
-              sentient-cache
-            </div>
-            <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-[color:var(--color-ink)] glow-text">
+        {/* Top status rail — single hairline-bottomed strip, full width. */}
+        <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between border-b border-[color:var(--color-rule)] bg-[color:var(--color-bg)]/85 px-5 py-2.5 backdrop-blur-sm">
+          <div className="flex items-baseline gap-3">
+            <span className="text-[10px] uppercase tracking-[0.22em] text-[color:var(--color-ink-faint)]">
+              SENTIENT-CACHE
+            </span>
+            <span className="text-[color:var(--color-rule)]">/</span>
+            <span className="text-[12px] tracking-tight text-[color:var(--color-ink)]">
               Edge Memory Console
-            </h1>
+            </span>
           </div>
-          <div className="mono flex gap-4 rounded-xl border border-[color:var(--color-glass-edge)] bg-[color:var(--color-glass-bg-strong)]/60 px-4 py-2 text-[11px] text-[color:var(--color-ink-dim)] backdrop-blur-xl">
+          <div className="flex items-center gap-5 text-[11px] text-[color:var(--color-ink-dim)] num">
             <Stat label="nodes" value={counts.total.toLocaleString()} />
-            <Sep />
             <Stat label="working" value={counts.working.toString()} />
-            <Sep />
             <Stat label="archive" value={counts.archive.toString()} />
-            <Sep />
             <Stat
-              label="avg importance"
+              label="μ importance"
               value={counts.avgImportance.toFixed(2)}
               accent
             />
+            <button
+              type="button"
+              onClick={() => setHelpOpen((v) => !v)}
+              className="pointer-events-auto inline-flex h-5 w-5 items-center justify-center border border-[color:var(--color-rule)] text-[10px] text-[color:var(--color-ink-faint)] transition hover:border-[color:var(--color-accent)]/60 hover:text-[color:var(--color-ink)]"
+              aria-label="Toggle keyboard shortcuts and legend"
+              aria-expanded={helpOpen}
+            >
+              ?
+            </button>
           </div>
         </header>
 
+        {/* Galaxy occupies the full viewport behind the rails. */}
         <section className="absolute inset-0">
           <MemoryGalaxy
             memories={memories}
@@ -230,7 +249,8 @@ export function HudConsole() {
           />
         </section>
 
-        <aside className="absolute right-6 top-28 bottom-6 z-10 flex w-[22rem] flex-col gap-4">
+        {/* Right control column. Anchored to the rail, no rounded floats. */}
+        <aside className="absolute right-5 top-16 bottom-5 z-10 flex w-[22rem] flex-col gap-3">
           <SearchBar
             ref={searchInputRef}
             memories={memories}
@@ -242,53 +262,69 @@ export function HudConsole() {
             pendingJobs={jobs}
             onLocalIngest={handleLocalIngest}
             onJobComplete={handleJobComplete}
+            onJobError={handleJobError}
           />
         </aside>
 
-        <aside className="absolute bottom-6 left-6 z-10 w-[22rem]">
-          {selectedMemory ? (
+        {/* Bottom-left detail surface. Selected → inspector. Otherwise empty. */}
+        {selectedMemory && (
+          <aside className="absolute bottom-5 left-5 z-10 w-[22rem]">
             <MemoryInspector
               memory={selectedMemory}
               utility={selectedUtility}
               onClose={() => setSelectedMemory(null)}
             />
-          ) : (
-            <GlassPanel
-              title="Memory Heatmap"
-              subtitle="Brightness ∝ Semantic Utility"
+          </aside>
+        )}
+
+        {/* Help overlay. Hidden by default; toggled by ? button or shortcut. */}
+        {helpOpen && (
+          <div
+            role="dialog"
+            aria-modal="false"
+            className="absolute bottom-5 left-5 z-10 w-[22rem]"
+          >
+            <Panel
+              title="Console legend"
+              subtitle="What you're looking at"
               accent={
-                <span className="mono text-[10px] uppercase tracking-widest text-[color:var(--color-ink-faint)]">
-                  U = (S × C) / T
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setHelpOpen(false)}
+                  className="inline-flex items-center border border-[color:var(--color-rule)] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[color:var(--color-ink-faint)] transition hover:text-[color:var(--color-ink)]"
+                >
+                  esc
+                </button>
               }
             >
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 mono text-[11px]">
-                <dt className="text-[color:var(--color-ink-faint)]">projection</dt>
-                <dd className="text-right text-[color:var(--color-ink-dim)]">
-                  384-d → 3-d fold
+              <dl className="grid grid-cols-[7rem_1fr] gap-y-2 text-[11px]">
+                <dt className="text-[color:var(--color-ink-faint)]">each star</dt>
+                <dd className="text-[color:var(--color-ink-dim)]">
+                  one memory, projected from 384 dimensions into 3D
                 </dd>
-                <dt className="text-[color:var(--color-ink-faint)]">star size</dt>
-                <dd className="text-right text-[color:var(--color-ink-dim)]">
-                  utility × importance
+                <dt className="text-[color:var(--color-ink-faint)]">size</dt>
+                <dd className="text-[color:var(--color-ink-dim)]">
+                  how useful it is right now (semantic match × access count ÷ age)
                 </dd>
-                <dt className="text-[color:var(--color-ink-faint)]">hot color</dt>
-                <dd className="text-right text-[color:var(--color-accent)] glow-text">
-                  sky · starlight
+                <dt className="text-[color:var(--color-ink-faint)]">colour</dt>
+                <dd className="text-[color:var(--color-ink-dim)]">
+                  pale → <span className="text-[color:var(--color-accent)]">amber</span>{" "}
+                  as utility climbs
                 </dd>
                 <dt className="text-[color:var(--color-ink-faint)]">search</dt>
-                <dd className="text-right text-[color:var(--color-ink-dim)]">
-                  on-device WASM
+                <dd className="text-[color:var(--color-ink-dim)]">
+                  embedded on-device — your text never leaves the browser
                 </dd>
               </dl>
-              <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 border-t border-[color:var(--color-glass-edge)]/60 pt-3 mono text-[10px] uppercase tracking-widest text-[color:var(--color-ink-faint)]">
+              <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 border-t border-[color:var(--color-rule-soft)] pt-3 text-[10px] uppercase tracking-[0.14em] text-[color:var(--color-ink-faint)]">
                 <ShortcutHint k="/" label="search" />
                 <ShortcutHint k="i" label="ingest" />
                 <ShortcutHint k="r" label="clear" />
-                <ShortcutHint k="esc" label="deselect" />
+                <ShortcutHint k="esc" label="back out" />
               </div>
-            </GlassPanel>
-          )}
-        </aside>
+            </Panel>
+          </div>
+        )}
 
         {showTooltip && hoveredMemory && hoverPos && (
           <MemoryTooltip
@@ -312,16 +348,14 @@ function Stat({
   accent?: boolean;
 }) {
   return (
-    <div className="flex flex-col items-start leading-tight">
-      <span className="text-[9px] uppercase tracking-widest text-[color:var(--color-ink-faint)]">
+    <div className="flex items-baseline gap-1.5">
+      <span className="text-[10px] uppercase tracking-[0.14em] text-[color:var(--color-ink-mute)]">
         {label}
       </span>
       <span
-        className={
-          accent
-            ? "text-[color:var(--color-accent)] glow-text"
-            : "text-[color:var(--color-ink)]"
-        }
+        className={`num ${
+          accent ? "text-[color:var(--color-accent)]" : "text-[color:var(--color-ink)]"
+        }`}
       >
         {value}
       </span>
@@ -329,14 +363,10 @@ function Stat({
   );
 }
 
-function Sep() {
-  return <span className="self-center text-[color:var(--color-glass-edge)]">·</span>;
-}
-
 function ShortcutHint({ k, label }: { k: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
-      <kbd className="rounded border border-[color:var(--color-glass-edge)]/80 bg-[color:var(--color-nebula-deep)]/60 px-1.5 py-0.5 text-[color:var(--color-ink-dim)]">
+      <kbd className="border border-[color:var(--color-rule)] bg-[color:var(--color-panel-strong)] px-1.5 py-0.5 text-[color:var(--color-ink-dim)] normal-case tracking-normal">
         {k}
       </kbd>
       <span>{label}</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { GlassPanel } from "./GlassPanel";
+import { Panel } from "./Panel";
 import type { HudMemory } from "@/lib/types";
 
 interface MemoryInspectorProps {
@@ -20,62 +20,80 @@ function formatAge(ms: number): string {
   return `${d}d ago`;
 }
 
+const SYNC_LABEL: Record<HudMemory["syncState"], string> = {
+  local: "local only",
+  syncing: "writing to remote",
+  synced: "in sync",
+};
+
 export function MemoryInspector({ memory, utility, onClose }: MemoryInspectorProps) {
   const ageMs = Date.now() - memory.lastAccessedAt;
 
   return (
-    <GlassPanel
+    <Panel
       strong
-      title="Inspecting Memory"
+      title="Inspecting memory"
       subtitle={memory.id}
       accent={
         <button
           type="button"
           onClick={onClose}
           aria-label="Close inspector"
-          className="inline-flex items-center gap-1.5 rounded border border-[color:var(--color-glass-edge)] bg-[color:var(--color-nebula-deep)]/60 px-1.5 py-0.5 mono text-[10px] uppercase tracking-widest text-[color:var(--color-ink-faint)] transition hover:text-[color:var(--color-ink)] hover:border-[color:var(--color-accent)]/50"
+          className="inline-flex items-center border border-[color:var(--color-rule)] bg-[color:var(--color-bg-deep)] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[color:var(--color-ink-faint)] transition hover:text-[color:var(--color-ink)] hover:border-[color:var(--color-accent)]/60"
         >
           esc
         </button>
       }
     >
-      <p className="text-sm leading-relaxed text-[color:var(--color-ink)]">
+      <p className="text-[13px] leading-relaxed text-[color:var(--color-ink)]">
         {memory.content}
       </p>
-      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 mono text-[11px]">
-        <dt className="text-[color:var(--color-ink-faint)]">utility</dt>
-        <dd className="text-right text-[color:var(--color-accent)] glow-text">
-          {utility.toFixed(3)}
-        </dd>
-        <dt className="text-[color:var(--color-ink-faint)]">importance</dt>
-        <dd className="text-right text-[color:var(--color-ink-dim)]">
-          {memory.importance.toFixed(1)}
-        </dd>
-        <dt className="text-[color:var(--color-ink-faint)]">access count</dt>
-        <dd className="text-right text-[color:var(--color-ink-dim)]">
-          {memory.accessCount}
-        </dd>
-        <dt className="text-[color:var(--color-ink-faint)]">last seen</dt>
-        <dd className="text-right text-[color:var(--color-ink-dim)]">{formatAge(ageMs)}</dd>
-        <dt className="text-[color:var(--color-ink-faint)]">partition</dt>
-        <dd className="text-right text-[color:var(--color-ink-dim)]">
-          {memory.partition}
-        </dd>
-        <dt className="text-[color:var(--color-ink-faint)]">sync state</dt>
-        <dd
-          className={`text-right ${
+
+      <dl className="mt-4 divide-y divide-[color:var(--color-rule-soft)] border-t border-[color:var(--color-rule-soft)] text-[11px]">
+        <Row label="utility" value={utility.toFixed(3)} accent />
+        <Row label="importance" value={memory.importance.toFixed(1)} />
+        <Row label="access count" value={memory.accessCount.toString()} />
+        <Row label="last seen" value={formatAge(ageMs)} />
+        <Row label="partition" value={memory.partition} />
+        <Row
+          label="sync state"
+          value={SYNC_LABEL[memory.syncState]}
+          tone={
             memory.syncState === "synced"
-              ? "text-[color:var(--color-success)]"
-              : "text-[color:var(--color-accent)] pulse-glow"
-          }`}
-        >
-          {memory.syncState}
-        </dd>
-        <dt className="text-[color:var(--color-ink-faint)]">size</dt>
-        <dd className="text-right text-[color:var(--color-ink-dim)]">
-          {memory.sizeBytes.toLocaleString()} B
-        </dd>
+              ? "up"
+              : memory.syncState === "syncing"
+                ? "accent"
+                : undefined
+          }
+        />
+        <Row label="size" value={`${memory.sizeBytes.toLocaleString()} B`} />
       </dl>
-    </GlassPanel>
+    </Panel>
+  );
+}
+
+function Row({
+  label,
+  value,
+  accent,
+  tone,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  tone?: "up" | "accent";
+}) {
+  const valueColor = accent
+    ? "text-[color:var(--color-accent)]"
+    : tone === "up"
+      ? "text-[color:var(--color-up)]"
+      : tone === "accent"
+        ? "text-[color:var(--color-accent)]"
+        : "text-[color:var(--color-ink-dim)]";
+  return (
+    <div className="flex items-center justify-between py-2">
+      <dt className="text-[color:var(--color-ink-faint)]">{label}</dt>
+      <dd className={`num text-right ${valueColor}`}>{value}</dd>
+    </div>
   );
 }

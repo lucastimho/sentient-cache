@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { HudMemory } from "@/lib/types";
 import { project3D, utility } from "@/lib/utility";
@@ -20,8 +20,8 @@ const VERTEX_SHADER = /* glsl */ `
     vHighlight = highlighted;
     vSelected = selected;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    float pulse = 1.0 + 0.15 * sin(uTime * 2.0 + position.x * 0.4);
-    float selectedBoost = 1.0 + selected * 1.6;
+    float pulse = 1.0 + 0.06 * sin(uTime * 1.4 + position.x * 0.4);
+    float selectedBoost = 1.0 + selected * 1.5;
     gl_PointSize = size * pulse * selectedBoost * uPixelRatio * (240.0 / -mv.z);
     gl_Position = projectionMatrix * mv;
   }
@@ -39,8 +39,8 @@ const FRAGMENT_SHADER = /* glsl */ `
     float core = smoothstep(0.5, 0.0, d);
     float halo = exp(-d * 6.5);
 
-    vec3 base = mix(vColor, vec3(1.0), vHighlight * 0.75);
-    base = mix(base, vec3(1.0, 0.88, 0.55), vSelected);
+    vec3 base = mix(vColor, vec3(0.99, 0.92, 0.78), vHighlight * 0.85);
+    base = mix(base, vec3(1.0, 0.86, 0.45), vSelected);
 
     float ring = vSelected * smoothstep(0.40, 0.34, d) * smoothstep(0.26, 0.32, d);
 
@@ -83,6 +83,7 @@ export function MemoryGalaxy({
 }: MemoryGalaxyProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const internalsRef = useRef<Internals | null>(null);
+  const [webglError, setWebglError] = useState<string | null>(null);
 
   // Latest props mirrored into refs so the long-lived input handlers and RAF
   // loop see fresh values without re-mounting the WebGL context.
@@ -110,21 +111,35 @@ export function MemoryGalaxy({
     const h = mount.clientHeight;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x050a18, 0.02);
+    scene.fog = new THREE.FogExp2(0x0c0a08, 0.022);
 
     const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 2000);
     camera.position.set(0, 0, 18);
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      powerPreference: "high-performance",
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+        powerPreference: "high-performance",
+      });
+    } catch (err) {
+      setWebglError(
+        err instanceof Error ? err.message : "WebGL context unavailable",
+      );
+      return;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(w, h, false);
     renderer.setClearColor(0x000000, 0);
     mount.appendChild(renderer.domElement);
     renderer.domElement.className = "block h-full w-full cursor-grab touch-none";
+
+    const handleContextLost = (e: Event) => {
+      e.preventDefault();
+      setWebglError("WebGL context lost — reload the page to restore the galaxy.");
+    };
+    renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3));
@@ -280,6 +295,7 @@ export function MemoryGalaxy({
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       renderer.domElement.removeEventListener("pointerup", handlePointerUp);
       renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
+      renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
       renderer.dispose();
       geometry.dispose();
       material.dispose();
@@ -323,9 +339,11 @@ export function MemoryGalaxy({
       highlights[i] = highlighted.has(m.id) ? 1 : 0;
       selected[i] = m.id === selectedId ? 1 : 0;
 
-      const baseR = 0.45 + u * 0.35;
-      const baseG = 0.72 + u * 0.2;
-      const baseB = 0.95;
+      // Lerp pale warm white → saturated amber as utility climbs.
+      const t = u;
+      const baseR = 0.96 * (1 - t) + 0.99 * t;
+      const baseG = 0.90 * (1 - t) + 0.74 * t;
+      const baseB = 0.78 * (1 - t) + 0.30 * t;
       colors[i * 3] = baseR;
       colors[i * 3 + 1] = baseG;
       colors[i * 3 + 2] = baseB;
@@ -349,33 +367,54 @@ export function MemoryGalaxy({
   return (
     <div className={`relative ${className ?? ""}`}>
       <div ref={mountRef} className="absolute inset-0" />
-      <div className="pointer-events-none absolute left-4 top-4 mono text-[11px] tracking-wider uppercase text-[color:var(--color-ink-faint)] space-y-0.5">
-        <div>
-          nodes{" "}
-          <span className="text-[color:var(--color-ink-dim)] glow-text">
-            {stats.total.toLocaleString()}
-          </span>
+
+      {webglError && (
+        <div className="absolute inset-0 flex items-center justify-center px-6">
+          <div className="max-w-md border border-[color:var(--color-rule)] bg-[color:var(--color-panel-strong)] px-5 py-4 text-center">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--color-down)] mb-1.5">
+              Galaxy unavailable
+            </div>
+            <p className="text-[12px] leading-relaxed text-[color:var(--color-ink-dim)]">
+              {webglError}
+            </p>
+            <p className="mt-2 text-[11px] text-[color:var(--color-ink-faint)]">
+              Search and ingest still work in the side panel.
+            </p>
+          </div>
         </div>
-        <div>
-          highlighted{" "}
-          <span className="text-[color:var(--color-accent)] glow-text">
-            {stats.highlighted}
-          </span>
-        </div>
-        <div>
-          syncing{" "}
-          <span className="text-[color:var(--color-star-dim)] glow-text">
-            {stats.syncing}
-          </span>
-        </div>
-      </div>
-      <div className="pointer-events-none absolute bottom-4 right-4 flex items-center gap-2 mono text-[10px] uppercase tracking-widest text-[color:var(--color-ink-faint)] opacity-70">
-        <span>drag</span>
-        <span className="text-[color:var(--color-glass-edge)]">·</span>
-        <span>click a star</span>
-        <span className="text-[color:var(--color-glass-edge)]">·</span>
-        <span>esc deselects</span>
-      </div>
+      )}
+
+      {!webglError && (
+        <>
+          <div className="pointer-events-none absolute left-4 top-4 text-[11px] tracking-wide uppercase text-[color:var(--color-ink-faint)] space-y-1">
+            <Stat label="nodes" value={stats.total.toLocaleString()} />
+            <Stat label="matched" value={stats.highlighted.toString()} accent />
+            <Stat label="in-flight" value={stats.syncing.toString()} />
+          </div>
+          <div className="pointer-events-none absolute bottom-4 right-4 flex items-center gap-3 text-[10px] uppercase tracking-[0.14em] text-[color:var(--color-ink-faint)]">
+            <span>drag to rotate</span>
+            <span className="text-[color:var(--color-rule)]">|</span>
+            <span>click a star to inspect</span>
+            <span className="text-[color:var(--color-rule)]">|</span>
+            <span>esc to deselect</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="w-[4.5rem] text-[color:var(--color-ink-mute)]">{label}</span>
+      <span
+        className={`num text-[12px] tracking-normal normal-case ${
+          accent ? "text-[color:var(--color-accent)]" : "text-[color:var(--color-ink)]"
+        }`}
+      >
+        {value}
+      </span>
     </div>
   );
 }

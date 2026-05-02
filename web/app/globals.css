@@ -1,120 +1,117 @@
 @import "tailwindcss";
 
 @theme {
-  --color-nebula: oklch(14% 0.04 250);
-  --color-nebula-deep: oklch(8% 0.02 250);
-  --color-nebula-edge: oklch(22% 0.06 235);
-  --color-star-core: oklch(97% 0.08 220);
-  --color-star-glow: oklch(82% 0.14 225);
-  --color-star-dim: oklch(64% 0.1 230);
-  --color-ink: oklch(92% 0.02 230);
-  --color-ink-dim: oklch(70% 0.03 230);
-  --color-ink-faint: oklch(52% 0.04 230);
-  --color-glass-bg: oklch(18% 0.04 245 / 45%);
-  --color-glass-bg-strong: oklch(14% 0.05 245 / 70%);
-  --color-glass-edge: oklch(68% 0.08 225 / 22%);
-  --color-glass-highlight: oklch(92% 0.05 225 / 8%);
-  --color-accent: oklch(78% 0.16 225);
-  --color-accent-dim: oklch(52% 0.12 228);
-  --color-danger: oklch(68% 0.2 25);
-  --color-success: oklch(72% 0.18 150);
+  /* Surfaces: warm charcoal, intentionally not pure black. */
+  --color-bg: oklch(13% 0.005 60);
+  --color-bg-deep: oklch(9% 0.004 60);
+  --color-panel: oklch(15% 0.004 60 / 88%);
+  --color-panel-strong: oklch(17% 0.005 60 / 96%);
 
-  --radius-glass: 1.25rem;
-  --backdrop-blur-glass: 18px;
+  /* Hairline rules — single weight, varied alpha at use site. */
+  --color-rule: oklch(45% 0.01 60 / 35%);
+  --color-rule-soft: oklch(45% 0.01 60 / 18%);
 
-  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
-  --font-display: ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
+  /* Ink: warm zinc, four steps. */
+  --color-ink: oklch(94% 0.01 80);
+  --color-ink-dim: oklch(74% 0.012 75);
+  --color-ink-faint: oklch(54% 0.012 70);
+  --color-ink-mute: oklch(40% 0.012 65);
+
+  /* Single accent: deep amber. Used sparingly for the live read, the active
+     metric, the selected star, and the focus ring. Nothing else. */
+  --color-accent: oklch(80% 0.155 78);
+  --color-accent-dim: oklch(58% 0.11 75);
+
+  /* Status pair — desaturated; only "synced" green and "error" oxblood. */
+  --color-up: oklch(72% 0.12 145);
+  --color-down: oklch(62% 0.16 28);
+
+  /* Star colors written in 0–1 RGB, consumed directly by the WebGL shader. */
+  --star-warm-r: 0.96;
+  --star-warm-g: 0.90;
+  --star-warm-b: 0.78;
+  --star-amber-r: 0.99;
+  --star-amber-g: 0.74;
+  --star-amber-b: 0.30;
+
+  --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 @layer base {
   html,
   body {
     min-height: 100dvh;
-    background: var(--color-nebula-deep);
+    background: var(--color-bg);
     color: var(--color-ink);
-    font-family: var(--font-display);
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum" 1, "ss01" 1;
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
   }
 
+  /* Single faint warm vignette — no nebula gradients, no blue auroras. */
   body::before {
     content: "";
     position: fixed;
     inset: 0;
     pointer-events: none;
-    background:
-      radial-gradient(1200px 800px at 85% 10%, color-mix(in oklch, var(--color-nebula-edge), transparent 30%), transparent 55%),
-      radial-gradient(900px 700px at 10% 85%, color-mix(in oklch, var(--color-accent-dim), transparent 55%), transparent 60%),
-      radial-gradient(ellipse at center, var(--color-nebula) 0%, var(--color-nebula-deep) 70%, black 100%);
+    background: radial-gradient(
+      120% 90% at 50% 50%,
+      transparent 0%,
+      transparent 55%,
+      var(--color-bg-deep) 100%
+    );
     z-index: -2;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-bg);
   }
 }
 
 @layer components {
-  .glass-panel {
-    background: var(--color-glass-bg);
-    backdrop-filter: blur(var(--backdrop-blur-glass)) saturate(1.3);
-    -webkit-backdrop-filter: blur(var(--backdrop-blur-glass)) saturate(1.3);
-    border: 1px solid var(--color-glass-edge);
-    border-radius: var(--radius-glass);
-    box-shadow:
-      inset 0 1px 0 var(--color-glass-highlight),
-      0 24px 60px -24px oklch(0 0 0 / 0.6),
-      0 0 40px -12px oklch(70% 0.15 228 / 15%);
+  /* The single canonical panel. Hairline border, charcoal fill, sharp corners,
+     no blur, no inner sheen, no shadow stacks. */
+  .panel {
+    background: var(--color-panel);
+    border: 1px solid var(--color-rule);
+    border-radius: 2px;
     position: relative;
-    overflow: hidden;
   }
 
-  .glass-panel::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(
-      140deg,
-      oklch(92% 0.05 225 / 10%) 0%,
-      transparent 35%,
-      transparent 65%,
-      oklch(40% 0.1 228 / 8%) 100%
-    );
+  .panel--strong {
+    background: var(--color-panel-strong);
   }
 
-  .glass-panel--strong {
-    background: var(--color-glass-bg-strong);
+  /* Status indicator dot — quiet blink, no glow. */
+  @keyframes blink {
+    0%, 70% { opacity: 1; }
+    80%, 100% { opacity: 0.35; }
+  }
+  .blink {
+    animation: blink 1.6s ease-in-out infinite;
   }
 
-  .glow-text {
-    text-shadow:
-      0 0 12px oklch(80% 0.15 225 / 40%),
-      0 0 3px oklch(95% 0.1 220 / 60%);
+  /* Used for "syncing" / "embedding" inline labels. */
+  @keyframes flicker {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+  .flicker {
+    animation: flicker 1.4s ease-in-out infinite;
   }
 
-  .mono {
-    font-family: var(--font-mono);
-    font-feature-settings: "tnum" 1;
+  /* The label primitive: small, mono, faintly tracked. NOT widest-tracking. */
+  .label {
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
   }
-}
 
-@keyframes pulse-glow {
-  0%,
-  100% {
-    opacity: 0.65;
+  .num {
+    font-variant-numeric: tabular-nums;
   }
-  50% {
-    opacity: 1;
-  }
-}
-
-.pulse-glow {
-  animation: pulse-glow 1.8s ease-in-out infinite;
-}
-
-@keyframes spin-slow {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.spin-slow {
-  animation: spin-slow 3s linear infinite;
 }

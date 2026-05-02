@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { GlassPanel } from "./GlassPanel";
+import { Panel } from "./Panel";
 import { LATENCY_REFERENCES, type LatencySample } from "@/lib/types";
 
 const MAX_SAMPLES = 120;
@@ -20,9 +20,13 @@ function formatNs(ns: number): string {
 
 function Sparkline({ samples }: { samples: LatencySample[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [hover, setHover] = useState<{ x: number; value: number; source: LatencySample["source"] } | null>(
-    null,
-  );
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<{
+    x: number;
+    y: number;
+    value: number;
+    source: LatencySample["source"];
+  } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -52,32 +56,32 @@ function Sparkline({ samples }: { samples: LatencySample[] }) {
       const max = Math.max(10, ...values);
       const min = Math.max(0, Math.min(...values) - 0.5);
 
-      ctx.strokeStyle = "oklch(78% 0.16 225 / 85%)";
-      ctx.lineWidth = 1.6;
-      ctx.shadowColor = "oklch(78% 0.16 225 / 50%)";
-      ctx.shadowBlur = 8;
+      // Single hairline stroke. No drop-shadow glow.
+      ctx.strokeStyle = "oklch(80% 0.155 78)";
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
       for (let i = 0; i < recent.length; i++) {
         const x = (i / (MAX_SAMPLES - 1)) * w;
         const v = recent[i]!.edgeMs;
-        const y = h - ((v - min) / (max - min)) * h * 0.9 - 4;
+        const y = h - ((v - min) / (max - min)) * h * 0.85 - 6;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
       ctx.stroke();
 
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "oklch(78% 0.16 225 / 18%)";
+      // Faint amber fill underneath.
+      ctx.fillStyle = "oklch(80% 0.155 78 / 9%)";
       ctx.lineTo(w, h);
       ctx.lineTo(0, h);
       ctx.closePath();
       ctx.fill();
 
-      // Target line at 10ms
-      ctx.strokeStyle = "oklch(72% 0.18 150 / 60%)";
-      ctx.setLineDash([4, 4]);
+      // SLO target line at 10ms.
+      ctx.strokeStyle = "oklch(72% 0.12 145 / 45%)";
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      const targetY = h - ((10 - min) / (max - min)) * h * 0.9 - 4;
+      const targetY = h - ((10 - min) / (max - min)) * h * 0.85 - 6;
       ctx.moveTo(0, targetY);
       ctx.lineTo(w, targetY);
       ctx.stroke();
@@ -89,14 +93,23 @@ function Sparkline({ samples }: { samples: LatencySample[] }) {
     return () => cancelAnimationFrame(rafId);
   }, [samples]);
 
+  if (samples.length === 0) {
+    return (
+      <div className="flex h-20 items-center justify-center text-[10px] uppercase tracking-[0.14em] text-[color:var(--color-ink-mute)]">
+        awaiting first read
+      </div>
+    );
+  }
+
   return (
-    <div className="relative">
+    <div ref={wrapRef} className="relative">
       <canvas
         ref={canvasRef}
         className="h-20 w-full cursor-crosshair"
         onMouseMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
           const recent = samples.slice(-MAX_SAMPLES);
           if (recent.length === 0) return;
           const idx = Math.min(
@@ -104,14 +117,19 @@ function Sparkline({ samples }: { samples: LatencySample[] }) {
             Math.max(0, Math.floor((x / rect.width) * recent.length)),
           );
           const sample = recent[idx]!;
-          setHover({ x, value: sample.edgeMs, source: sample.source });
+          setHover({ x, y, value: sample.edgeMs, source: sample.source });
         }}
         onMouseLeave={() => setHover(null)}
       />
       {hover && (
         <div
-          className="pointer-events-none absolute -top-1 mono text-[10px] tracking-widest text-[color:var(--color-accent)] glow-text whitespace-nowrap"
-          style={{ left: hover.x, transform: "translate(-50%, -100%)" }}
+          className="pointer-events-none absolute text-[10px] tracking-[0.06em] text-[color:var(--color-accent)] whitespace-nowrap num"
+          style={{
+            // Clamp inside the panel: 4px from the top, flip to right of cursor near the left edge.
+            left: Math.min(Math.max(hover.x, 4), 9999),
+            top: Math.max(0, hover.y - 18),
+            transform: "translate(-50%, 0)",
+          }}
         >
           {hover.value.toFixed(2)} ms · {hover.source}
         </div>
@@ -136,52 +154,57 @@ export function LatencyVitalsPanel({ samples, currentMs }: LatencyVitalsPanelPro
   }, [bins]);
 
   const edgeNs = currentMs == null ? 0 : currentMs * 1_000_000;
-  const refs = [...LATENCY_REFERENCES, { label: "Edge retrieval", ns: edgeNs }];
+  const refs = [...LATENCY_REFERENCES, { label: "This cache", ns: edgeNs }];
   const maxLog = Math.log10(Math.max(...refs.map((r) => Math.max(1, r.ns))));
 
   return (
-    <GlassPanel
-      title="Latency Vitals"
-      subtitle="L1 → Edge reference chain"
+    <Panel
+      title="Read latency"
+      subtitle="How fast we serve, vs CPU cache, RAM, SSD, network"
       accent={
-        <div className="mono text-right leading-tight">
-          <div className="text-[10px] uppercase tracking-wider text-[color:var(--color-ink-faint)]">
+        <div className="text-right leading-tight">
+          <div className="text-[9px] uppercase tracking-[0.14em] text-[color:var(--color-ink-mute)]">
             current
           </div>
-          <div className="text-lg font-semibold text-[color:var(--color-accent)] glow-text">
+          <div className="num text-[18px] font-medium text-[color:var(--color-accent)]">
             {currentMs == null ? "—" : `${currentMs.toFixed(2)} ms`}
           </div>
           {p50 !== null && (
-            <div className="text-[10px] text-[color:var(--color-ink-faint)]">
+            <div className="num text-[10px] text-[color:var(--color-ink-faint)]">
               p50 {p50.toFixed(2)} ms
             </div>
           )}
         </div>
       }
     >
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {refs.map((ref) => {
           const logV = Math.log10(Math.max(1, ref.ns));
           const pct = (logV / maxLog) * 100;
-          const isEdge = ref.label === "Edge retrieval";
-          const bar = isEdge
-            ? "bg-gradient-to-r from-[color:var(--color-accent)] to-[color:var(--color-star-core)]"
-            : "bg-[color:var(--color-accent-dim)]/50";
+          const isEdge = ref.label === "This cache";
           return (
             <div key={ref.label} className="flex items-center gap-3">
-              <div className="w-28 shrink-0 text-[11px] tracking-wide text-[color:var(--color-ink-dim)]">
+              <div
+                className={`w-28 shrink-0 text-[11px] tracking-tight ${
+                  isEdge ? "text-[color:var(--color-ink)]" : "text-[color:var(--color-ink-faint)]"
+                }`}
+              >
                 {ref.label}
               </div>
-              <div className="relative h-1.5 flex-1 rounded-full bg-[color:var(--color-glass-edge)]/40 overflow-hidden">
+              <div className="relative h-[3px] flex-1 bg-[color:var(--color-rule-soft)]">
                 <div
-                  className={`absolute inset-y-0 left-0 rounded-full ${bar}`}
+                  className={`absolute inset-y-0 left-0 ${
+                    isEdge
+                      ? "bg-[color:var(--color-accent)]"
+                      : "bg-[color:var(--color-ink-mute)]"
+                  }`}
                   style={{ width: `${Math.min(100, pct)}%` }}
                 />
               </div>
               <div
-                className={`w-24 shrink-0 mono text-right text-[11px] ${
+                className={`w-24 shrink-0 num text-right text-[11px] ${
                   isEdge
-                    ? "text-[color:var(--color-accent)] glow-text"
+                    ? "text-[color:var(--color-accent)]"
                     : "text-[color:var(--color-ink-faint)]"
                 }`}
               >
@@ -191,13 +214,13 @@ export function LatencyVitalsPanel({ samples, currentMs }: LatencyVitalsPanelPro
           );
         })}
       </div>
-      <div className="mt-5 border-t border-[color:var(--color-glass-edge)]/60 pt-3">
-        <div className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-wider text-[color:var(--color-ink-faint)]">
+      <div className="mt-4 border-t border-[color:var(--color-rule-soft)] pt-3">
+        <div className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[color:var(--color-ink-faint)]">
           <span>last {Math.min(samples.length, MAX_SAMPLES)} reads</span>
-          <span className="text-[color:var(--color-success)]">SLO: 10 ms</span>
+          <span className="text-[color:var(--color-up)]">target 10 ms</span>
         </div>
         <Sparkline samples={samples} />
       </div>
-    </GlassPanel>
+    </Panel>
   );
 }
